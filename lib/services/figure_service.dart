@@ -7,6 +7,7 @@ import 'package:pdfrx/pdfrx.dart';
 
 import '../db/repository.dart';
 import '../models/models.dart';
+import 'pdf_service.dart' show PdfService;
 
 /// Rasm nomzodi: sahifadagi matn bo'lmagan "siyoh" bloki (PDF nuqtalarida, yuqori-chapdan).
 class FigureCandidate {
@@ -33,8 +34,9 @@ class FigureService {
   FigureService(this.repo);
   final Repository repo;
 
-  /// Testlarda `pdfrxInitialize` bilan almashtiriladi.
-  static Future<void> Function() initEngine = pdfrxFlutterInitialize;
+  /// Testlarda `pdfrxInitialize` bilan almashtiriladi ([PdfService.initEngine] bilan umumiy).
+  static Future<void> Function() get initEngine => PdfService.initEngine;
+  static set initEngine(Future<void> Function() f) => PdfService.initEngine = f;
   static void Function(int page)? debugProgress;
 
   final _bookFigs = <int, Future<List<BookFigure>>>{};

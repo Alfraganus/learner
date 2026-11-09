@@ -50,6 +50,18 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Eski importlar matnini pdfium matniga yangilash (syncfusion "directlyy", "yFigure" kabi xatolar qo'shardi).
+  Future<void> refreshOldText() async {
+    for (final id in await repo.booksWithOldText()) {
+      try {
+        final r = await processor.refreshText(id);
+        if (r != null) debugPrint('text: book $id — ${r.updated}/${r.total} chapters refreshed');
+      } catch (e) {
+        debugPrint('text: book $id — $e');
+      }
+    }
+  }
+
   late final SecretStore _secrets = SecretStore(repo);
 
   /// O'rganish tili: darslar, quiz va javoblar shu tilda yaratiladi.
@@ -94,6 +106,7 @@ class AppState extends ChangeNotifier {
         await st.rag.backfill();
       } catch (_) {}
       await st.processor.resumePending();
+      await st.refreshOldText();
       await st.detectMissingFigures();
     }());
     return st;

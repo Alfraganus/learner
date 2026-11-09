@@ -62,3 +62,53 @@ List<Chunk> chunkPages(
   }
   return chunks;
 }
+
+final _nonWord = RegExp(r'[^\p{L}\p{N}]', unicode: true);
+
+/// Solishtirish uchun: faqat harf va raqamlar, kichik harfda, "y" siz
+/// (syncfusion "y" ni ortiqcha qo'shardi: "syystem", "yFigure"; qatorlarni ham yopishtirardi).
+String _norm(String s) => s.toLowerCase().replaceAll(_nonWord, '').replaceAll('y', '');
+
+/// Yangi (toza) matnni eski qismlar chegarasida bo'ladi: qismlar soni va chegaralari o'zgarmaydi,
+/// shuning uchun yozib bo'lingan darslar o'z qismiga mos qoladi va hech bir qator tushib qolmaydi.
+/// Chegara qator o'rtasiga tushsa, o'sha qator keyingi qismga o'tadi (takrorlanishi mumkin, yo'qolmaydi).
+/// Matnlar mazmunan farq qilsa (umumiy uzunlik [tolerance] dan ko'p) — null.
+List<Chunk>? realignChunks(
+  List<({int page, String text})> pages,
+  List<String> oldSections, {
+  double tolerance = 0.02,
+}) {
+  if (oldSections.isEmpty) return null;
+  final lines = <({int page, String text, int cum})>[];
+  var cum = 0;
+  for (final p in pages) {
+    for (final l in p.text.split('\n')) {
+      cum += _norm(l).length;
+      lines.add((page: p.page, text: l, cum: cum));
+    }
+    lines.add((page: p.page, text: '', cum: cum));
+  }
+  final oldLens = [for (final s in oldSections) _norm(s).length];
+  final oldTotal = oldLens.fold<int>(0, (a, b) => a + b);
+  if (oldTotal == 0 || (cum - oldTotal).abs() > oldTotal * tolerance) return null;
+
+  final out = <Chunk>[];
+  var from = 0;
+  var target = 0;
+  for (var i = 0; i < oldSections.length; i++) {
+    var to = lines.length;
+    if (i < oldSections.length - 1) {
+      target += oldLens[i];
+      to = from;
+      while (to < lines.length && lines[to].cum <= target) {
+        to++;
+      }
+    }
+    final slice = lines.sublist(from, to).where((l) => l.text.trim().isNotEmpty).toList();
+    if (slice.isEmpty) return null;
+    final text = lines.sublist(from, to).map((l) => l.text).join('\n').trim();
+    out.add(Chunk(slice.first.page, slice.last.page, text, countWords(text)));
+    from = to;
+  }
+  return out;
+}

@@ -13,7 +13,7 @@ class AppDatabase {
   /// Ilova ma'lumotlari papkasi (PDF nusxalari, claude ish papkasi).
   final Directory dataDir;
 
-  static const _version = 3;
+  static const _version = 4;
 
   /// [dir] berilmasa, ilova ma'lumotlari papkasi ishlatiladi (testlar uchun berish mumkin).
   static Future<AppDatabase> open({String? dir}) async {
@@ -42,7 +42,7 @@ class AppDatabase {
         },
         onCreate: (db, version) async {
           final batch = db.batch();
-          for (final stmt in [..._schemaV1, ..._schemaV2, ..._schemaV3]) {
+          for (final stmt in [..._schemaV1, ..._schemaV2, ..._schemaV3, ..._schemaV4]) {
             batch.execute(stmt);
           }
           await batch.commit(noResult: true);
@@ -61,6 +61,11 @@ class AppDatabase {
               batch.execute(stmt);
             }
             await batch.commit(noResult: true);
+          }
+          if (oldV < 4) {
+            for (final stmt in _schemaV4) {
+              await db.execute(stmt);
+            }
           }
         },
       ),
@@ -272,5 +277,10 @@ class AppDatabase {
     'CREATE UNIQUE INDEX idx_figures_label ON figures(book_id, label)',
     'CREATE INDEX idx_figures_page ON figures(book_id, page)',
     'ALTER TABLE books ADD COLUMN figures_done INTEGER NOT NULL DEFAULT 0',
+  ];
+
+  /// v4: kitob matni qaysi usulda ajratilgan (0 — syncfusion, 2 — pdfium). Eskilari fonda yangilanadi.
+  static const List<String> _schemaV4 = [
+    'ALTER TABLE books ADD COLUMN text_v INTEGER NOT NULL DEFAULT 0',
   ];
 }

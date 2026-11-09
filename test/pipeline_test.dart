@@ -12,6 +12,7 @@ import 'package:learner/services/content_service.dart';
 import 'package:learner/services/pdf_service.dart';
 import 'package:learner/services/rag_service.dart';
 import 'package:path/path.dart' as p;
+import 'package:pdfrx/pdfrx.dart' show pdfrxInitialize;
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 const _ch1 = [
@@ -100,7 +101,7 @@ void main() {
     expect(RagService.buildQuery(['?? !!']), isNull);
   });
 
-  test('v1 database upgrades to latest (v3) and gets indexed', () async {
+  test('v1 database upgrades to latest (v4) and gets indexed', () async {
     final src = Directory.systemTemp
         .listSync()
         .whereType<Directory>()
@@ -119,15 +120,70 @@ void main() {
     }
     final db = await AppDatabase.open(dir: tmp.path);
     final version = (await db.db.rawQuery('PRAGMA user_version')).first.values.first;
-    expect(version, 3);
-    // v3: rasmlar jadvali va kitobdagi belgi.
-    await db.db.rawQuery('SELECT figures_done FROM books LIMIT 1');
+    expect(version, 4);
+    // v3: rasmlar jadvali va kitobdagi belgi. v4: matn versiyasi.
+    await db.db.rawQuery('SELECT figures_done, text_v FROM books LIMIT 1');
     await db.db.rawQuery('SELECT COUNT(*) FROM figures');
     final rag = RagService(Repository(db));
     await rag.backfill();
     final cnt = (await db.db.rawQuery('SELECT COUNT(*) c FROM rag_chunks')).first['c'] as int;
     // ignore: avoid_print
     print('upgraded ${v1.first.path}: rag_chunks=$cnt');
+    await db.db.close();
+  });
+
+  test('pdfium text: new extraction and refresh of old books', () async {
+    PdfService.initEngine = pdfrxInitialize;
+    final tmp = await Directory.systemTemp.createTemp('learner_text');
+    final pdf = await _makePdf(tmp.path);
+
+    final fresh = await PdfService.pdfiumPages(pdf);
+    expect(fresh, isNotNull);
+    expect(fresh![2], contains('HTTP (Hypertext Transfer Protocol)'));
+    final ex = await PdfService.extract(pdf);
+    expect(ex.pages[2], fresh[2]);
+    expect(ex.outline, isEmpty);
+    expect(PdfService.cleanPdfiumText('back-of-the-envelope\u0002calculations\r\nnext'),
+        'back-of-the-envelope-calculations\nnext');
+
+    // Eski import: syncfusion "buzgan" matn, bitta bob (3-4 sahifalar) va bitta qism.
+    final db = await AppDatabase.open(dir: tmp.path);
+    final repo = Repository(db);
+    final bookId = await repo.insertBook(categoryId: null, title: 'HTTP', filePath: pdf, fileName: 'h.pdf');
+    // syncfusion xatolariga o'xshash: ortiqcha "y" va yopishgan qatorlar.
+    final broken = [for (final t in fresh) t.replaceAll('the', 'thye').replaceAll('\n', '')];
+    await repo.insertPages(bookId, broken);
+    await repo.replaceStructure(bookId, [
+      // 1-bob: ikki qism, chegara 3- va 4-sahifa orasida.
+      (title: 'Ch1', start: 3, end: 4, sections: [
+        (start: 3, end: 3, text: broken[2], words: 70),
+        (start: 4, end: 4, text: broken[3], words: 50),
+      ]),
+      // 2-bob: matni PDF ga mos kelmaydi -> o'zgarmasdan qoladi.
+      (title: 'Ch2', start: 5, end: 6, sections: [(start: 5, end: 6, text: 'something else entirely', words: 3)]),
+    ]);
+    await repo.setBookStatus(bookId, BookStatus.ready, null);
+    expect(await repo.booksWithOldText(), [bookId]);
+    final idsBefore = (await db.db.query('sections', where: 'book_id = ?', whereArgs: [bookId], orderBy: 'id'))
+        .map((r) => r['id'])
+        .toList();
+
+    final processor = BookProcessor(repo, ClaudeService(workDir: p.join(tmp.path, 'w')), RagService(repo), () {});
+    final r = await processor.refreshText(bookId);
+    expect(r, (updated: 1, total: 2));
+    final after = await db.db.query('sections', where: 'book_id = ?', whereArgs: [bookId], orderBy: 'id');
+    expect(after.map((r) => r['id']).toList(), idsBefore);
+    final a = after[0]['source_text'] as String, b = after[1]['source_text'] as String;
+    expect(a, contains('HTTP (Hypertext Transfer Protocol)'));
+    expect(a, contains('POST creates new data.'));
+    expect(a, isNot(contains('thye')));
+    expect(a, isNot(contains('stateless')));
+    expect(b, startsWith('HTTP is stateless'));
+    expect(after[2]['source_text'], 'something else entirely');
+    expect((await repo.pages(bookId))[3], fresh[3]);
+    expect(await repo.booksWithOldText(), isEmpty);
+    final rag = (await db.db.rawQuery("SELECT text FROM rag_chunks WHERE book_id = ? AND kind = 'source'", [bookId]));
+    expect(rag.map((e) => e['text']).join(' '), contains('stateless'));
     await db.db.close();
   });
 

@@ -86,6 +86,7 @@ class BookProcessor {
     }
     await repo.insertPages(bookId, ex.pages);
     await repo.updateBook(bookId, {
+      'text_v': 2,
       'page_count': ex.pages.length,
       if (ex.title != null && ex.title!.length > 2) 'title': ex.title,
       if (ex.author != null) 'author': ex.author,
@@ -201,6 +202,42 @@ class BookProcessor {
     }
 
     await repo.setBookStatus(bookId, BookStatus.ready, null);
+  }
+
+  /// Eski usulda (syncfusion) ajratilgan kitob matnini pdfium matniga almashtiradi.
+  /// Boblar, qismlar, darslar va progress saqlanadi: har bob yangi matni eski qismlar chegarasida
+  /// bo'linadi ([realignChunks]). Matn mazmunan mos kelmasa, o'sha bob eski matnda qoladi.
+  /// Qaytaradi: yangilangan boblar soni (kitob topilmasa yoki PDF ochilmasa — null).
+  Future<({int updated, int total})?> refreshText(int bookId) async {
+    if (_active.contains(bookId)) return null;
+    final book = await repo.book(bookId);
+    if (book == null) return null;
+    final fresh = await PdfService.pdfiumPages(book.filePath);
+    final old = await repo.pages(bookId);
+    if (fresh == null || fresh.length != old.length) {
+      await repo.setTextVersion(bookId, 1); // qayta-qayta urinmaslik uchun
+      return null;
+    }
+    final pages = [for (var i = 0; i < fresh.length; i++) fresh[i].isEmpty ? old[i] : fresh[i]];
+    final updates = <({int id, int start, int end, String text, int words})>[];
+    final layout = await repo.chapterLayout(bookId);
+    var updated = 0;
+    for (final ch in layout) {
+      if (ch.start < 1 || ch.end > pages.length || ch.sections.isEmpty) continue;
+      final chunks = realignChunks(
+        [for (var pg = ch.start; pg <= ch.end; pg++) (page: pg, text: pages[pg - 1])],
+        [for (final s in ch.sections) s.text],
+      );
+      if (chunks == null) continue;
+      updated++;
+      for (var i = 0; i < chunks.length; i++) {
+        final c = chunks[i];
+        updates.add((id: ch.sections[i].id, start: c.startPage, end: c.endPage, text: c.text, words: c.words));
+      }
+    }
+    await repo.replaceBookText(bookId, pages, updates);
+    await rag.indexBookSource(bookId);
+    return (updated: updated, total: layout.length);
   }
 
   ({String outline, String front, String heads}) _digest(PdfExtraction ex) {

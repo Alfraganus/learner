@@ -145,6 +145,61 @@ class Repository {
     return rows.map((r) => r['text'] as String).toList();
   }
 
+  /// Matni hali pdfium bilan yangilanmagan tayyor kitoblar.
+  Future<List<int>> booksWithOldText() async {
+    final rows = await db.query('books', columns: ['id'], where: "status = 'ready' AND text_v < 2");
+    return rows.map((r) => r['id'] as int).toList();
+  }
+
+  Future<void> setTextVersion(int bookId, int v) =>
+      db.update('books', {'text_v': v}, where: 'id = ?', whereArgs: [bookId]);
+
+  /// Bob chegaralari va har bobdagi qismlar (id va asl matn, tartib bilan).
+  Future<List<({int start, int end, List<({int id, String text})> sections})>> chapterLayout(int bookId) async {
+    final chs = await db.query('chapters',
+        columns: ['id', 'start_page', 'end_page'], where: 'book_id = ?', whereArgs: [bookId], orderBy: 'idx');
+    final secs = await db.query('sections',
+        columns: ['id', 'chapter_id', 'source_text'],
+        where: 'book_id = ?',
+        whereArgs: [bookId],
+        orderBy: 'chapter_id, idx');
+    return [
+      for (final c in chs)
+        (
+          start: c['start_page'] as int,
+          end: c['end_page'] as int,
+          sections: [
+            for (final s in secs)
+              if (s['chapter_id'] == c['id']) (id: s['id'] as int, text: s['source_text'] as String),
+          ],
+        ),
+    ];
+  }
+
+  /// Sahifalar va qismlar matnini almashtirish (tuzilma, darslar va progress o'zgarmaydi).
+  Future<void> replaceBookText(
+    int bookId,
+    List<String> pages,
+    List<({int id, int start, int end, String text, int words})> sections,
+  ) async {
+    await db.transaction((txn) async {
+      await txn.delete('book_pages', where: 'book_id = ?', whereArgs: [bookId]);
+      final batch = txn.batch();
+      for (var i = 0; i < pages.length; i++) {
+        batch.insert('book_pages', {'book_id': bookId, 'page_no': i + 1, 'text': pages[i]});
+      }
+      for (final s in sections) {
+        batch.update(
+            'sections',
+            {'start_page': s.start, 'end_page': s.end, 'source_text': s.text, 'word_count': s.words},
+            where: 'id = ?',
+            whereArgs: [s.id]);
+      }
+      batch.update('books', {'text_v': 2}, where: 'id = ?', whereArgs: [bookId]);
+      await batch.commit(noResult: true);
+    });
+  }
+
   // ---------------- Rasmlar ----------------
   Future<void> replaceFigures(int bookId, List<BookFigure> figs) async {
     await db.transaction((txn) async {
