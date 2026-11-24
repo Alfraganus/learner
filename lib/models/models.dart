@@ -41,6 +41,9 @@ class Book {
     required this.lastScroll,
     this.totalSections = 0,
     this.doneSections = 0,
+    this.sourceKind = 'pdf',
+    this.sourceUrl,
+    this.sourceScope,
   });
 
   final int id;
@@ -61,6 +64,14 @@ class Book {
   final double? lastScroll;
   final int totalSections;
   final int doneSections;
+
+  /// 'pdf' yoki 'web'.
+  final String sourceKind;
+  final String? sourceUrl;
+
+  /// Veb-manba uchun: 'page' (bitta sahifa) yoki 'section' (butun bo'lim).
+  final String? sourceScope;
+  bool get isWeb => sourceKind == 'web';
 
   double get progress => totalSections == 0 ? 0 : doneSections / totalSections;
   bool get isReady => status == BookStatus.ready;
@@ -84,6 +95,9 @@ class Book {
         lastScroll: (r['last_scroll'] as num?)?.toDouble(),
         totalSections: (r['total_sections'] as int?) ?? 0,
         doneSections: (r['done_sections'] as int?) ?? 0,
+        sourceKind: (r['source_kind'] as String?) ?? 'pdf',
+        sourceUrl: r['source_url'] as String?,
+        sourceScope: r['source_scope'] as String?,
       );
 }
 

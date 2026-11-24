@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import '../db/repository.dart';
+import '../l10n/strings.dart';
 import '../models/models.dart';
 import 'chunker.dart';
 import 'claude_service.dart';
@@ -11,6 +12,7 @@ import 'figure_service.dart';
 import 'pdf_service.dart';
 import 'prompts.dart';
 import 'rag_service.dart';
+import 'web_source.dart';
 
 /// PDF ni import qilish: matn ajratish -> boblarni aniqlash (claude) -> qismlarga bo'lish.
 class BookProcessor {
@@ -45,6 +47,49 @@ class BookProcessor {
     return id;
   }
 
+  /// Veb-sahifa (yoki butun bo'lim) havolasidan o'rganish manbasi qo'shish.
+  /// [scope]: 'page' — faqat shu sahifa, 'section' — menyudagi butun bo'lim.
+  Future<int> importUrl(String url, String scope, int? categoryId, {String? title}) async {
+    final u = Uri.parse(url);
+    final id = await repo.insertBook(
+      categoryId: categoryId,
+      title: (title == null || title.trim().isEmpty) ? '${u.host}${u.path}' : title.trim(),
+      filePath: '',
+      fileName: '${u.host}${u.path}',
+      sourceKind: 'web',
+      sourceUrl: url,
+      sourceScope: scope,
+    );
+    onChanged();
+    process(id);
+    return id;
+  }
+
+  /// Veb-manba sahifalarini yuklab, PDF bilan bir xil ko'rinishga keltiradi.
+  Future<PdfExtraction> _extractWeb(Book book) async {
+    final ws = WebSource();
+    final url = WebSource.parseUrl(book.sourceUrl ?? '');
+    if (url == null) throw Exception(S.ui.t('web_bad_url'));
+    final probe = await ws.probe(url);
+    final List<WebPage> pages;
+    if (book.sourceScope == 'section' && probe.hasSection) {
+      pages = await ws.fetchAll(probe.sectionUrls);
+    } else {
+      pages = [probe.page];
+    }
+    if (pages.isEmpty) throw Exception(S.ui.t('web_no_text'));
+    await repo.insertWebPages(book.id, [
+      for (final pg in pages) (url: pg.url, text: pg.text),
+    ]);
+    final host = url.host.replaceFirst('www.', '');
+    return PdfExtraction(
+      [for (final pg in pages) pg.text],
+      [for (var i = 0; i < pages.length; i++) PdfOutlineItem(pages[i].title, i + 1, 0)],
+      pages.length == 1 ? pages.first.title : '${probe.page.title} ($host)',
+      host,
+    );
+  }
+
   /// Ilova qayta ochilganda chala qolgan importlarni davom ettirish.
   Future<void> resumePending() async {
     for (final id in await repo.booksWithStatus(BookStatus.processing)) {
@@ -77,14 +122,14 @@ class BookProcessor {
     if (book == null) return;
     final lang = langProvider();
 
-    // 1) Matnni ajratish
-    await _step(bookId, 'step_extract');
-    final ex = await PdfService.extract(book.filePath);
+    // 1) Matnni ajratish (PDF yoki veb-sahifalar)
+    await _step(bookId, book.isWeb ? 'step_fetch' : 'step_extract');
+    final ex = book.isWeb ? await _extractWeb(book) : await PdfService.extract(book.filePath);
     if (ex.totalChars < 200) {
-      await repo.setBookStatus(bookId, BookStatus.error, 'no_text');
+      await repo.setBookStatus(bookId, BookStatus.error, book.isWeb ? 'web_no_text' : 'no_text');
       return;
     }
-    await repo.insertPages(bookId, ex.pages);
+    if (!book.isWeb) await repo.insertPages(bookId, ex.pages);
     await repo.updateBook(bookId, {
       'text_v': 2,
       'page_count': ex.pages.length,
@@ -99,7 +144,9 @@ class BookProcessor {
     final res = await claude.structured(
       system: Prompts.structureSystem,
       prompt: Prompts.structurePrompt(
-        fileName: book.fileName,
+        fileName: book.isWeb
+            ? 'Web source ${book.sourceUrl} — every "page" below is one web page of this tutorial/section, in menu order'
+            : book.fileName,
         pageCount: ex.pages.length,
         outline: digest.outline,
         frontText: digest.front,
@@ -193,7 +240,7 @@ class BookProcessor {
     await rag.indexBookSource(bookId);
 
     // 5) Rasmlar (darsda "1-4-rasm" havolasi turgan joyda ko'rsatish uchun). Xato bo'lsa — kitob baribir tayyor.
-    if (figures != null) {
+    if (figures != null && !book.isWeb) {
       await _step(bookId, 'step_figures');
       try {
         await figures!.detectBook(bookId);

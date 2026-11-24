@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../l10n/strings.dart';
 import '../state/app_state.dart';
@@ -14,12 +15,28 @@ extension Ctx on BuildContext {
   AppState get app => read<AppState>();
 }
 
-String translateStatus(S s, String? msg) => msg == null ? '' : s.t(msg);
+/// Holat xabari: kalit yoki "kalit|tafsilot".
+String translateStatus(S s, String? msg) {
+  if (msg == null) return '';
+  final i = msg.indexOf('|');
+  if (i < 0) return s.t(msg);
+  return '${s.t(msg.substring(0, i))}: ${msg.substring(i + 1)}';
+}
+
+/// Havolani tashqi brauzerda ochish.
+Future<void> openUrl(String url) async {
+  final u = Uri.tryParse(url);
+  if (u == null) return;
+  await launchUrl(u, mode: LaunchMode.externalApplication);
+}
 
 // ============================================================ Markdown
 class Md extends StatelessWidget {
-  const Md(this.data, {super.key, this.reading = false, this.fontSize, this.imageBuilder});
+  const Md(this.data, {super.key, this.reading = false, this.fontSize, this.imageBuilder, this.selectable = true});
   final String data;
+
+  /// false — matn o'zi tanlanmaydi (tashqi SelectionArea ichida ishlatish uchun).
+  final bool selectable;
 
   /// Markdown ichidagi rasmlar (masalan, `learner-fig:1-4` — kitobdagi rasm).
   final Widget Function(Uri uri, String? title, String? alt)? imageBuilder;
@@ -45,8 +62,14 @@ class Md extends StatelessWidget {
     );
     return MarkdownBody(
       data: data,
-      selectable: true,
+      selectable: selectable,
       imageBuilder: imageBuilder,
+      onTapLink: (text, href, title) {
+        final u = href == null ? null : Uri.tryParse(href);
+        if (u != null && (u.scheme == 'http' || u.scheme == 'https')) {
+          launchUrl(u, mode: LaunchMode.externalApplication);
+        }
+      },
       styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
         p: body,
         listBullet: body,

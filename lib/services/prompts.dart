@@ -4,6 +4,22 @@ import '../l10n/strings.dart';
 class Prompts {
   static String langName(String code) => AppLang.promptName(code);
 
+  /// Ilova chizadigan vizual bloklar (```viz). Darslar va intervyu javoblarida ishlatiladi.
+  static const vizGuide = '''
+VISUALS: the app draws special fenced code blocks whose language tag is `viz` and whose body is ONE valid JSON object (no comments, no trailing commas). Use them where a picture makes the idea much clearer: tracing an algorithm or code step by step, a request/data flow, a decision process, a structure (tree, hierarchy), or a numeric comparison. Labels and notes in the explanation language; code identifiers and values as they are. Supported types:
+1. Step-by-step trace (algorithms, loops, recursion, how code runs):
+   {"type":"steps","title":"…","steps":[{"note":"what happens in this step","array":[5,3,8,1],"highlight":[0,1],"pointers":{"i":0,"j":1},"vars":{"min":"3"},"stack":["main()","sort()"],"output":"text printed so far"}]}
+   Every field except "note" is optional; each step shows the FULL state at that moment. 3-12 steps.
+2. Flow (processes, request flow, decisions):
+   {"type":"flow","title":"…","direction":"down","nodes":[{"id":"a","label":"Browser","kind":"start"},{"id":"b","label":"Is cached?","kind":"decision"},{"id":"c","label":"Server","kind":"box"},{"id":"d","label":"DB","kind":"data"}],"edges":[{"from":"a","to":"b"},{"from":"b","to":"c","label":"no"}]}
+   kind: start | box | decision | data | end. direction: down | right. At most 12 nodes.
+3. Tree (hierarchies, BST, recursion trees, DOM):
+   {"type":"tree","title":"…","root":{"label":"8","children":[{"label":"3","children":[{"label":"1"}]},{"label":"10"}]},"highlight":["3"]}
+   At most 25 nodes.
+4. Bars (comparing numbers: sizes, timings, complexities for a given n):
+   {"type":"bars","title":"…","unit":"ms","items":[{"label":"O(n)","value":1000},{"label":"O(n log n)","value":10000}]}
+''';
+
   // ---------------- Kitob tuzilishi ----------------
   static const structureSystem =
       'You are an expert book analyst. You receive a compact digest of a PDF book '
@@ -107,15 +123,18 @@ Book: "$bookTitle"
 Chapter: "$chapterTitle"
 Part $partNo of $partCount in this chapter.${previousTitle != null ? '\nPrevious part was about: "$previousTitle"' : ''}
 
-Below is the ORIGINAL TEXT of this part (extracted from PDF, may contain page headers/footers and broken lines — ignore page headers, footers and page numbers).
+Below is the ORIGINAL TEXT of this part (extracted from a PDF book or from web pages — it may contain page headers/footers, broken lines, menu or button leftovers such as "Try it Yourself"; ignore those).
 
 Write a lesson that teaches this part:
 - "title": a short, clear title for this part.
 - "content": the full simplified explanation in Markdown. Use headings (##, ###), short paragraphs, bullet lists, **bold** for key ideas, tables if helpful, and fenced code blocks for code (translate only code comments). Go through the text in order and cover EVERYTHING — do not summarize away details, examples or numbers. Where something is hard, add a short everyday analogy or a tiny example (mark it with "💡"). If the text continues an idea from the previous part, connect it naturally.
+- Do not just translate: teach. Make it simpler than the original — explain the "why", add an easy way to think about it, a small worked example (for code: what it prints / how it runs, line by line), common mistakes, and where useful a comparison table.
+- Visuals: where a picture helps (an algorithm or loop step by step, how a request/data flows, a structure, a comparison), add 1-3 `viz` blocks as described below. For a part about an algorithm, always include a step-by-step `steps` trace on a small example.
 - Figures/tables: when the text refers to a figure (e.g. "Figure 1-4"), keep the reference with its exact number, written in the lesson language (Uzbek: "1-4-rasm", Russian: "рис. 1-4", English: "Figure 1-4"). The app shows the picture right after that paragraph, so describe what it shows; never say the picture is missing.
 - "key_points": 3-7 most important takeaways (one sentence each).
 - "terms": important terms/notions introduced in this part with a one-sentence simple explanation (may be empty).
 
+$vizGuide
 ORIGINAL TEXT:
 """
 $source

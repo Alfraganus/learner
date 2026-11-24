@@ -13,7 +13,7 @@ class AppDatabase {
   /// Ilova ma'lumotlari papkasi (PDF nusxalari, claude ish papkasi).
   final Directory dataDir;
 
-  static const _version = 4;
+  static const _version = 6;
 
   /// [dir] berilmasa, ilova ma'lumotlari papkasi ishlatiladi (testlar uchun berish mumkin).
   static Future<AppDatabase> open({String? dir}) async {
@@ -42,7 +42,7 @@ class AppDatabase {
         },
         onCreate: (db, version) async {
           final batch = db.batch();
-          for (final stmt in [..._schemaV1, ..._schemaV2, ..._schemaV3, ..._schemaV4]) {
+          for (final stmt in [..._schemaV1, ..._schemaV2, ..._schemaV3, ..._schemaV4, ..._schemaV5, ..._schemaV6]) {
             batch.execute(stmt);
           }
           await batch.commit(noResult: true);
@@ -64,6 +64,16 @@ class AppDatabase {
           }
           if (oldV < 4) {
             for (final stmt in _schemaV4) {
+              await db.execute(stmt);
+            }
+          }
+          if (oldV < 5) {
+            for (final stmt in _schemaV5) {
+              await db.execute(stmt);
+            }
+          }
+          if (oldV < 6) {
+            for (final stmt in _schemaV6) {
               await db.execute(stmt);
             }
           }
@@ -282,5 +292,48 @@ class AppDatabase {
   /// v4: kitob matni qaysi usulda ajratilgan (0 — syncfusion, 2 — pdfium). Eskilari fonda yangilanadi.
   static const List<String> _schemaV4 = [
     'ALTER TABLE books ADD COLUMN text_v INTEGER NOT NULL DEFAULT 0',
+  ];
+
+  /// v5: veb-sahifalardan o'rganish (kitob manbasi — havola) va YouTube intervyular tahlili.
+  static const List<String> _schemaV5 = [
+    "ALTER TABLE books ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'pdf'",
+    'ALTER TABLE books ADD COLUMN source_url TEXT',
+    'ALTER TABLE books ADD COLUMN source_scope TEXT',
+    'ALTER TABLE book_pages ADD COLUMN url TEXT',
+    '''CREATE TABLE interviews(
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      url            TEXT NOT NULL,
+      video_id       TEXT,
+      title          TEXT,
+      channel        TEXT,
+      duration       INTEGER NOT NULL DEFAULT 0,
+      lang           TEXT NOT NULL,
+      status         TEXT NOT NULL DEFAULT 'processing',
+      status_message TEXT,
+      progress       REAL,
+      transcript     TEXT,
+      summary        TEXT,
+      created_at     INTEGER NOT NULL,
+      last_opened_at INTEGER
+    )''',
+    'CREATE INDEX idx_interviews_created ON interviews(created_at DESC)',
+    'CREATE INDEX idx_interviews_status ON interviews(status)',
+    '''CREATE TABLE interview_items(
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      interview_id INTEGER NOT NULL REFERENCES interviews(id) ON DELETE CASCADE,
+      idx          INTEGER NOT NULL,
+      start_sec    REAL NOT NULL,
+      end_sec      REAL NOT NULL,
+      question     TEXT NOT NULL,
+      analysis     TEXT
+    )''',
+    'CREATE UNIQUE INDEX idx_interview_items ON interview_items(interview_id, idx)',
+  ];
+
+  /// v6: intervyu savollarini "muhim" deb belgilash, shaxsiy izoh va belgilangan matn parchalari.
+  static const List<String> _schemaV6 = [
+    'ALTER TABLE interview_items ADD COLUMN starred INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE interview_items ADD COLUMN note TEXT',
+    'ALTER TABLE interview_items ADD COLUMN highlights TEXT',
   ];
 }

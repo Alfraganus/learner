@@ -6,6 +6,7 @@ import '../state/app_state.dart';
 import '../ui/theme.dart';
 import '../widgets/async_loader.dart';
 import '../widgets/common.dart';
+import '../widgets/viz_view.dart';
 
 Widget _page(BuildContext context, Widget child, {double maxWidth = 780}) => SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(32, 40, 32, 64),
@@ -258,7 +259,7 @@ class _QaCardState extends State<_QaCard> {
             child: _open
                 ? Padding(
                     padding: const EdgeInsets.fromLTRB(56, 0, 24, 20),
-                    child: Md(widget.item.answer, fontSize: 15.5),
+                    child: RichMd(widget.item.answer, fontSize: 15.5),
                   )
                 : const SizedBox(width: double.infinity),
           ),
@@ -776,7 +777,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                 () => setState(() => _showSolution = !_showSolution)),
           ]),
           if (_showHint) box(p.warmSoft, Md(e.hint, fontSize: 14.5)),
-          if (_showSolution) box(p.surfaceAlt, Md(e.solution, fontSize: 14.5)),
+          if (_showSolution) box(p.surfaceAlt, RichMd(e.solution, fontSize: 14.5)),
           const SizedBox(height: 16),
           TextField(
             controller: _ctrl,

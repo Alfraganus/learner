@@ -11,6 +11,7 @@ import '../widgets/logo.dart';
 import 'book_screen.dart';
 import 'home_page.dart';
 import 'import_flow.dart';
+import 'interviews_page.dart';
 import 'library_page.dart';
 import 'settings_page.dart';
 
@@ -63,6 +64,7 @@ class _ShellState extends State<Shell> {
         filter: _libraryFilter,
         onFilter: (f) => setState(() => _libraryFilter = f),
       ),
+      const InterviewsPage(),
       const SettingsPage(),
     ];
 
@@ -189,6 +191,8 @@ class _Rail extends StatelessWidget {
           item(0, Icons.wb_sunny_outlined, Icons.wb_sunny_rounded, s.t('nav_today')),
           const SizedBox(height: 6),
           item(1, Icons.auto_stories_outlined, Icons.auto_stories_rounded, s.t('nav_library')),
+          const SizedBox(height: 6),
+          item(2, Icons.record_voice_over_outlined, Icons.record_voice_over_rounded, s.t('nav_interview')),
           const Spacer(),
           PopupMenuButton<String>(
             tooltip: s.t('ui_language'),
@@ -239,7 +243,7 @@ class _Rail extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          item(2, Icons.tune_rounded, Icons.tune_rounded, s.t('settings')),
+          item(3, Icons.tune_rounded, Icons.tune_rounded, s.t('settings')),
         ],
       ),
     );

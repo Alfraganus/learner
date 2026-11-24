@@ -9,6 +9,7 @@ import '../state/app_state.dart';
 import '../ui/theme.dart';
 import '../widgets/async_loader.dart';
 import '../widgets/common.dart';
+import '../widgets/viz_view.dart';
 import '../widgets/figure_view.dart';
 
 /// Bitta qism darsi: "qog'oz" sahifa + pastda suzib turuvchi navigatsiya.
@@ -111,10 +112,22 @@ class _LessonBodyState extends State<_LessonBody> {
   List<BookFigure> _figs = const [];
   int _figRev = -1;
 
+  /// Veb-manba: shu qism olingan sahifalar manzili.
+  List<String> _urls = const [];
+
   /// Qismga tegishli kitob rasmlari (fonda aniqlangan bo'lsa).
   Future<void> _loadFigures() async {
     final app = context.read<AppState>();
     final sec = widget.section;
+    if (widget.book.isWeb) {
+      final all = await app.repo.pageUrls(sec.bookId);
+      final urls = [
+        for (var pg = sec.startPage; pg <= sec.endPage; pg++)
+          if (all[pg] != null) all[pg]!,
+      ];
+      if (mounted && widget.section.id == sec.id) setState(() => _urls = urls);
+      return;
+    }
     try {
       final src = await app.repo.sectionSource(sec.id);
       final figs = await app.figures.sectionFigures(sec, src);
@@ -127,6 +140,7 @@ class _LessonBodyState extends State<_LessonBody> {
     super.didUpdateWidget(old);
     if (old.section.id != widget.section.id) {
       _figs = const [];
+      _urls = const [];
       _figRev = -1;
     }
   }
@@ -245,10 +259,22 @@ class _LessonBodyState extends State<_LessonBody> {
                             _meta(Icons.check_circle_rounded, s.t('done'), color: p.success),
                         ],
                       ),
+                      if (_urls.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Wrap(spacing: 8, runSpacing: 6, children: [
+                          for (final u in _urls)
+                            ActionChip(
+                              avatar: Icon(Icons.public_rounded, size: 15, color: p.accent),
+                              label: Text(Uri.parse(u).path, style: const TextStyle(fontSize: 12.5)),
+                              tooltip: u,
+                              onPressed: () => openUrl(u),
+                            ),
+                        ]),
+                      ],
                       const SizedBox(height: 28),
                       Divider(color: p.border),
                       const SizedBox(height: 28),
-                      Md(
+                      RichMd(
                         withFigs.markdown,
                         reading: true,
                         imageBuilder: (uri, title, alt) {

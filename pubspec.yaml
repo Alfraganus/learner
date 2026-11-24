@@ -46,6 +46,8 @@ dependencies:
   http: ^1.6.0
   ffi: ^2.2.0
   pdfrx: ^2.4.7
+  html: ^0.15.7
+  url_launcher: ^6.3.3
 
 dev_dependencies:
   flutter_test:

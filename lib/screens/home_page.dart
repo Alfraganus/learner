@@ -59,6 +59,12 @@ class HomePage extends StatelessWidget {
                     ],
                   ),
                 ),
+                OutlinedButton.icon(
+                  onPressed: () => ImportFlow.pickLink(context),
+                  icon: const Icon(Icons.public_rounded, size: 19),
+                  label: Text(s.t('add_link')),
+                ),
+                const SizedBox(width: 10),
                 FilledButton.icon(
                   onPressed: () => ImportFlow.pick(context),
                   icon: const Icon(Icons.add_rounded, size: 20),

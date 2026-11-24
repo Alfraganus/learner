@@ -8,6 +8,25 @@ import 'package:path/path.dart' as p;
 
 import '../l10n/strings.dart';
 
+/// Claude'ga yuboriladigan rasm (masalan, video kadri).
+class ClaudeImage {
+  ClaudeImage(this.path, {this.label});
+  final String path;
+
+  /// Rasm oldidan yoziladigan izoh (masalan, "Frame at 12:30").
+  final String? label;
+
+  String get mediaType {
+    final l = path.toLowerCase();
+    if (l.endsWith('.png')) return 'image/png';
+    if (l.endsWith('.webp')) return 'image/webp';
+    if (l.endsWith('.gif')) return 'image/gif';
+    return 'image/jpeg';
+  }
+
+  String base64() => base64Encode(File(path).readAsBytesSync());
+}
+
 class ClaudeException implements Exception {
   ClaudeException(this.message);
   final String message;
@@ -133,23 +152,32 @@ class ClaudeService {
   // ---------------------------------------------------------------- Umumiy API
   /// JSON sxema bo'yicha tuzilgan javob.
   /// [fast] — yordamchi ishlar uchun tez va arzon model (haiku).
+  /// [images] — prompt bilan birga yuboriladigan rasmlar (prompt matnidan oldin).
+  /// [webSearch] — Claude internetdan qidira oladi (masalan, o'qish uchun havolalar topish).
   Future<Map<String, dynamic>> structured({
     required String system,
     required String prompt,
     required Map<String, dynamic> schema,
     bool background = false,
     bool fast = false,
+    List<ClaudeImage> images = const [],
+    bool webSearch = false,
   }) async {
     await _sem.acquire(background: background);
     try {
       if (mode == ClaudeMode.api) {
         final txt = await _apiCall(system, prompt,
-            schema: schema, fast: fast, maxTokens: fast ? 4000 : 32000);
+            schema: schema,
+            fast: fast,
+            maxTokens: fast ? 4000 : 32000,
+            images: images,
+            webSearch: webSearch);
         final parsed = _extractJson(txt);
         if (parsed == null) throw ClaudeException(S.ui.t('err_no_structured'));
         return parsed;
       }
-      final out = await _cliCall(system, prompt, schema: schema, fast: fast);
+      final out =
+          await _cliCall(system, prompt, schema: schema, fast: fast, images: images, webSearch: webSearch);
       final so = out['structured_output'];
       if (so is Map) return Map<String, dynamic>.from(so);
       final parsed = _extractJson('${out['result'] ?? ''}');
@@ -188,13 +216,19 @@ class ClaudeService {
 
   // ---------------------------------------------------------------- CLI
   Future<Map<String, dynamic>> _cliCall(String system, String prompt,
-      {Map<String, dynamic>? schema, bool fast = false}) async {
+      {Map<String, dynamic>? schema,
+      bool fast = false,
+      List<ClaudeImage> images = const [],
+      bool webSearch = false}) async {
     await Directory(workDir).create(recursive: true);
     final m = fast ? 'haiku' : model.trim();
+    // Rasmlar bo'lsa, xabar stream-json ko'rinishida yuboriladi (API'dagi kabi content bloklari).
+    final streamInput = images.isNotEmpty;
     final args = <String>[
       '-p',
-      '--output-format', 'json',
-      '--tools', '',
+      if (streamInput) ...['--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
+      else ...['--output-format', 'json'],
+      if (webSearch) ...['--tools', 'WebSearch', '--allowedTools', 'WebSearch'] else ...['--tools', ''],
       '--no-session-persistence',
       '--strict-mcp-config',
       '--disable-slash-commands',
@@ -225,7 +259,24 @@ class ClaudeService {
         .transform(const Utf8Decoder(allowMalformed: true))
         .listen(errBuf.write)
         .asFuture<void>();
-    proc.stdin.add(utf8.encode(prompt));
+    if (streamInput) {
+      final content = <Map<String, dynamic>>[];
+      for (final im in images) {
+        if (im.label != null) content.add({'type': 'text', 'text': im.label});
+        content.add({
+          'type': 'image',
+          'source': {'type': 'base64', 'media_type': im.mediaType, 'data': im.base64()},
+        });
+      }
+      content.add({'type': 'text', 'text': prompt});
+      final msg = jsonEncode({
+        'type': 'user',
+        'message': {'role': 'user', 'content': content},
+      });
+      proc.stdin.add(utf8.encode('$msg\n'));
+    } else {
+      proc.stdin.add(utf8.encode(prompt));
+    }
     await proc.stdin.flush();
     await proc.stdin.close();
 
@@ -287,6 +338,8 @@ class ClaudeService {
     bool fast = false,
     int maxTokens = 16000,
     void Function(String)? onDelta,
+    List<ClaudeImage> images = const [],
+    bool webSearch = false,
   }) async {
     final key = effectiveApiKey;
     if (key.isEmpty) {
@@ -300,8 +353,31 @@ class ClaudeService {
       'stream': true,
       'system': system,
       'messages': [
-        {'role': 'user', 'content': prompt},
+        {
+          'role': 'user',
+          'content': images.isEmpty
+              ? prompt
+              : [
+                  for (final im in images) ...[
+                    if (im.label != null) {'type': 'text', 'text': im.label},
+                    {
+                      'type': 'image',
+                      'source': {'type': 'base64', 'media_type': im.mediaType, 'data': im.base64()},
+                    },
+                  ],
+                  {'type': 'text', 'text': prompt},
+                ],
+        },
       ],
+      if (webSearch)
+        'tools': [
+          {
+            // Dinamik filtrlash varianti faqat Sonnet/Opus/Fable'da; Haiku uchun oddiy variant.
+            'type': modelId.startsWith('claude-haiku') ? 'web_search_20250305' : 'web_search_20260209',
+            'name': 'web_search',
+            'max_uses': 4,
+          },
+        ],
       'output_config': {
         'effort': fast ? 'low' : 'medium',
         if (schema != null) 'format': {'type': 'json_schema', 'schema': strictSchema(schema)},
@@ -348,7 +424,11 @@ class ClaudeService {
         throw ClaudeException(_apiErrorMessage(res.statusCode, errText));
       }
 
+      // Har content blok alohida kuzatiladi: qidiruv bo'lsa, javob (JSON) oxirgi asbob natijasidan
+      // keyingi matn bloklarida bo'ladi; undan oldingi "qidiryapman…" kabi matnlar tashlanadi.
       final text = StringBuffer();
+      var afterTool = StringBuffer();
+      var sawTool = false;
       String? stopReason;
       String? errorMsg;
       final lines = res.stream
@@ -367,10 +447,17 @@ class ClaudeService {
             continue;
           }
           switch (ev['type']) {
+            case 'content_block_start':
+              final b = ev['content_block'];
+              if (b is Map && b['type'] != 'text' && b['type'] != 'thinking') {
+                sawTool = true;
+                afterTool = StringBuffer();
+              }
             case 'content_block_delta':
               final d = ev['delta'];
               if (d is Map && d['type'] == 'text_delta') {
                 text.write(d['text'] ?? '');
+                afterTool.write(d['text'] ?? '');
                 onDelta?.call(text.toString());
               }
             case 'message_delta':
@@ -399,7 +486,7 @@ class ClaudeService {
       if (stopReason == 'max_tokens' && schema != null) {
         throw ClaudeException(S.ui.t('err_truncated'));
       }
-      return text.toString();
+      return sawTool ? afterTool.toString() : text.toString();
     }
   }
 

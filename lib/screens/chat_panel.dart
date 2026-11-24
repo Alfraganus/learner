@@ -7,6 +7,7 @@ import '../services/rag_service.dart';
 import '../state/app_state.dart';
 import '../ui/theme.dart';
 import '../widgets/common.dart';
+import '../widgets/viz_view.dart';
 
 /// "Ustoz" paneli: kitob bo'yicha savol-javob (RAG). Javob ostida manbalar —
 /// bob, qism va sahifa; bosilsa o'sha joy ochiladi.
@@ -358,7 +359,7 @@ class _TutorPanelState extends State<TutorPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Md(m.content, fontSize: 14.5),
+                RichMd(m.content, fontSize: 14.5),
                 if (sources.isNotEmpty) ...[
                   const SizedBox(height: 10),
                   Wrap(

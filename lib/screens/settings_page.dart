@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -344,6 +346,25 @@ class _SettingsPageState extends State<SettingsPage> {
                 ]),
               ]),
 
+              // ---------------- Video vositalari (Intervyu bo'limi)
+              card(Icons.smart_display_outlined, s.t('tools_title'), s.t('tools_sub'), [
+                _ToolRow(
+                  name: 'yt-dlp',
+                  settingKey: 'ytdlp_path',
+                  found: app.videoTools.ytdlp,
+                  customPath: app.videoTools.ytdlpOverride,
+                  wingetId: 'yt-dlp.yt-dlp',
+                ),
+                const SizedBox(height: 12),
+                _ToolRow(
+                  name: 'ffmpeg',
+                  settingKey: 'ffmpeg_path',
+                  found: app.videoTools.ffmpeg,
+                  customPath: app.videoTools.ffmpegOverride,
+                  wingetId: 'Gyan.FFmpeg',
+                ),
+              ]),
+
               // ---------------- Ma'lumotlar
               card(Icons.storage_rounded, s.t('data'), s.t('data_sub'), [
                 SelectableText(app.repo.appDb.dataDir.path,
@@ -362,5 +383,86 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ),
     );
+  }
+}
+
+/// Video vositasi: topilgan yo'l, qo'lda yo'l ko'rsatish va winget bilan o'rnatish.
+class _ToolRow extends StatefulWidget {
+  const _ToolRow({
+    required this.name,
+    required this.settingKey,
+    required this.found,
+    required this.customPath,
+    required this.wingetId,
+  });
+  final String name;
+  final String settingKey;
+  final String? found;
+  final String customPath;
+  final String wingetId;
+
+  @override
+  State<_ToolRow> createState() => _ToolRowState();
+}
+
+class _ToolRowState extends State<_ToolRow> {
+  late final TextEditingController _ctrl = TextEditingController(text: widget.customPath);
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _install() async {
+    final s = context.sr;
+    try {
+      // Alohida konsol oynasida: foydalanuvchi o'rnatish jarayonini ko'radi va tasdiqlaydi.
+      await Process.start('cmd', ['/c', 'start', 'winget', 'install', '-e', '--id', widget.wingetId],
+          mode: ProcessStartMode.detached);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s.t('tools_install_started'))));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pal;
+    final s = context.s;
+    final ok = widget.found != null && File(widget.found!).existsSync();
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Icon(ok ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+            size: 18, color: ok ? p.success : p.danger),
+        const SizedBox(width: 8),
+        Text(widget.name, style: TextStyle(fontWeight: FontWeight.w700, color: p.ink)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(ok ? s.t('tools_found', {'path': widget.found!}) : s.t('tools_missing'),
+              overflow: TextOverflow.ellipsis, style: TextStyle(color: p.muted, fontSize: 12.5)),
+        ),
+        if (!ok && Platform.isWindows)
+          TextButton.icon(
+            onPressed: _install,
+            icon: const Icon(Icons.download_rounded, size: 18),
+            label: Text(s.t('tools_install')),
+          ),
+      ]),
+      const SizedBox(height: 6),
+      TextField(
+        controller: _ctrl,
+        decoration: InputDecoration(isDense: true, hintText: s.t('tools_path')),
+        style: TextStyle(fontFamily: Fonts.mono, fontFamilyFallback: Fonts.monoFallback, fontSize: 12.5),
+        onSubmitted: (v) => context.read<AppState>().setToolPath(widget.settingKey, v),
+        onTapOutside: (_) {
+          if (_ctrl.text.trim() != widget.customPath) {
+            context.read<AppState>().setToolPath(widget.settingKey, _ctrl.text);
+          }
+        },
+      ),
+    ]);
   }
 }

@@ -84,6 +84,9 @@ class Repository {
     required String title,
     required String filePath,
     required String fileName,
+    String sourceKind = 'pdf',
+    String? sourceUrl,
+    String? sourceScope,
   }) =>
       db.insert('books', {
         'category_id': categoryId,
@@ -92,6 +95,10 @@ class Repository {
         'file_name': fileName,
         'status': BookStatus.processing,
         'created_at': nowMs(),
+        'source_kind': sourceKind,
+        'source_url': sourceUrl,
+        'source_scope': sourceScope,
+        if (sourceKind != 'pdf') ...{'text_v': 2, 'figures_done': 1},
       });
 
   Future<void> updateBook(int id, Map<String, Object?> values) =>
@@ -136,6 +143,25 @@ class Repository {
     });
   }
 
+  /// Veb-manba sahifalari (matn va manzil).
+  Future<void> insertWebPages(int bookId, List<({String url, String text})> pages) async {
+    await db.transaction((txn) async {
+      await txn.delete('book_pages', where: 'book_id = ?', whereArgs: [bookId]);
+      final batch = txn.batch();
+      for (var i = 0; i < pages.length; i++) {
+        batch.insert('book_pages', {'book_id': bookId, 'page_no': i + 1, 'text': pages[i].text, 'url': pages[i].url});
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  /// Veb-manba sahifalarining manzillari (sahifa raqami → URL).
+  Future<Map<int, String>> pageUrls(int bookId) async {
+    final rows = await db.query('book_pages',
+        columns: ['page_no', 'url'], where: 'book_id = ? AND url IS NOT NULL', whereArgs: [bookId]);
+    return {for (final r in rows) r['page_no'] as int: r['url'] as String};
+  }
+
   Future<List<String>> pages(int bookId) async {
     final rows = await db.query('book_pages',
         columns: ['text'],
@@ -147,7 +173,7 @@ class Repository {
 
   /// Matni hali pdfium bilan yangilanmagan tayyor kitoblar.
   Future<List<int>> booksWithOldText() async {
-    final rows = await db.query('books', columns: ['id'], where: "status = 'ready' AND text_v < 2");
+    final rows = await db.query('books', columns: ['id'], where: "status = 'ready' AND text_v < 2 AND source_kind = 'pdf'");
     return rows.map((r) => r['id'] as int).toList();
   }
 
@@ -230,7 +256,7 @@ class Repository {
   /// Rasmlari hali aniqlanmagan tayyor kitoblar.
   Future<List<int>> booksWithoutFigures() async {
     final rows = await db.query('books',
-        columns: ['id'], where: "status = 'ready' AND figures_done = 0");
+        columns: ['id'], where: "status = 'ready' AND figures_done = 0 AND source_kind = 'pdf'");
     return rows.map((r) => r['id'] as int).toList();
   }
 

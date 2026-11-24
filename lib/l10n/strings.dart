@@ -1,4 +1,6 @@
-/// Interfeys tillari va matnlari.
+// Interfeys tillari va matnlari.
+import 'strings_extra.dart';
+
 class AppLang {
   static const codes = ['uz', 'en', 'ru'];
 
@@ -42,10 +44,10 @@ class S {
   static S ui = S('uz');
 
   /// Tildagi barcha kalitlar (testlar uchun).
-  static Set<String> keysOf(String lang) => _data[lang]!.keys.toSet();
+  static Set<String> keysOf(String lang) => {..._data[lang]!.keys, ...extraStrings[lang]!.keys};
 
   String t(String key, [Map<String, Object>? args]) {
-    var s = _data[lang]?[key] ?? _data['en']![key] ?? key;
+    var s = _data[lang]?[key] ?? extraStrings[lang]?[key] ?? _data['en']![key] ?? extraStrings['en']![key] ?? key;
     args?.forEach((k, v) => s = s.replaceAll('{$k}', '$v'));
     return s;
   }

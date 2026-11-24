@@ -101,7 +101,7 @@ void main() {
     expect(RagService.buildQuery(['?? !!']), isNull);
   });
 
-  test('v1 database upgrades to latest (v4) and gets indexed', () async {
+  test('v1 database upgrades to latest (v5) and gets indexed', () async {
     final src = Directory.systemTemp
         .listSync()
         .whereType<Directory>()
@@ -120,10 +120,12 @@ void main() {
     }
     final db = await AppDatabase.open(dir: tmp.path);
     final version = (await db.db.rawQuery('PRAGMA user_version')).first.values.first;
-    expect(version, 4);
+    expect(version, 6);
     // v3: rasmlar jadvali va kitobdagi belgi. v4: matn versiyasi.
-    await db.db.rawQuery('SELECT figures_done, text_v FROM books LIMIT 1');
+    await db.db.rawQuery('SELECT figures_done, text_v, source_kind FROM books LIMIT 1');
     await db.db.rawQuery('SELECT COUNT(*) FROM figures');
+    // v6: intervyu belgilari.
+    await db.db.rawQuery('SELECT starred, note, highlights FROM interview_items LIMIT 1');
     final rag = RagService(Repository(db));
     await rag.backfill();
     final cnt = (await db.db.rawQuery('SELECT COUNT(*) c FROM rag_chunks')).first['c'] as int;

@@ -5,15 +5,19 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import '../db/app_database.dart';
+import '../db/interview_repo.dart';
 import '../db/repository.dart';
 import '../l10n/strings.dart';
+import '../models/interview.dart';
 import '../models/models.dart';
 import '../services/book_processor.dart';
 import '../services/claude_service.dart';
 import '../services/content_service.dart';
 import '../services/figure_service.dart';
+import '../services/interview_service.dart';
 import '../services/rag_service.dart';
 import '../services/secret_store.dart';
+import '../services/video_tools.dart';
 
 class AppState extends ChangeNotifier {
   AppState._(this.repo, this.claude) {
@@ -24,7 +28,12 @@ class AppState extends ChangeNotifier {
       ..langProvider = (() => lang)
       ..figures = figures
       ..onFiguresReady = _figuresReady;
+    interviewsSvc = InterviewService(repo, claude, videoTools, _scheduleRefresh)..langProvider = (() => lang);
   }
+
+  final videoTools = VideoTools();
+  late final InterviewService interviewsSvc;
+  List<Interview> interviews = [];
 
   final Repository repo;
   final ClaudeService claude;
@@ -99,6 +108,8 @@ class AppState extends ChangeNotifier {
     claude.executableOverride = await repo.getSetting('claude_path') ?? '';
     claude.mode = (await repo.getSetting('mode')) == 'api' ? ClaudeMode.api : ClaudeMode.cli;
     claude.apiKey = await st._secrets.read();
+    st.videoTools.ytdlpOverride = await repo.getSetting('ytdlp_path') ?? '';
+    st.videoTools.ffmpegOverride = await repo.getSetting('ffmpeg_path') ?? '';
     await st.refresh();
     if (!background) return st;
     unawaited(() async {
@@ -106,6 +117,7 @@ class AppState extends ChangeNotifier {
         await st.rag.backfill();
       } catch (_) {}
       await st.processor.resumePending();
+      await st.interviewsSvc.resumePending();
       await st.refreshOldText();
       await st.detectMissingFigures();
     }());
@@ -123,6 +135,7 @@ class AppState extends ChangeNotifier {
     allBooks = await repo.books();
     lastBook = await repo.lastOpenedBook();
     stats = await repo.stats();
+    interviews = await repo.interviews();
     notifyListeners();
   }
 
@@ -203,6 +216,31 @@ class AppState extends ChangeNotifier {
   Future<void> importPdf(String path, int? categoryId) async {
     await processor.importPdf(path, categoryId);
     await refresh();
+  }
+
+  Future<void> importUrl(String url, String scope, int? categoryId, {String? title}) async {
+    await processor.importUrl(url, scope, categoryId, title: title);
+    await refresh();
+  }
+
+  // ---- Intervyular ----
+  Future<int> addInterview(String url) async {
+    final id = await interviewsSvc.add(url);
+    await refresh();
+    return id;
+  }
+
+  Future<void> deleteInterview(int id) async {
+    await interviewsSvc.delete(id);
+    await refresh();
+  }
+
+  Future<void> setToolPath(String key, String path) async {
+    if (key == 'ytdlp_path') videoTools.ytdlpOverride = path.trim();
+    if (key == 'ffmpeg_path') videoTools.ffmpegOverride = path.trim();
+    videoTools.resetResolution();
+    await repo.setSetting(key, path.trim());
+    notifyListeners();
   }
 
   Future<void> retryBook(int id) async {
